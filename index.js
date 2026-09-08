@@ -3,6 +3,7 @@ import {
 } from "../../../extensions.js";
 
 import {
+  getRequestHeaders,
   characters,
   default_avatar,
   eventSource,
@@ -11,6 +12,12 @@ import {
   renderTemplate,
   saveSettingsDebounced
 } from "../../../../script.js";
+
+import {
+  getTextGenServer,
+  textgen_types,
+  textgenerationwebui_settings,
+} from "../../../textgen-settings.js";
 
 /////
 
@@ -107,10 +114,70 @@ function updateCharacterList() {
 }
 
 /**
- * Initializes the slots and slotsUsage arrays with the specified total number of slots.
- * @param {number} totalSlots - The total number of slots to initialize.
+ * Fetches the total number of slots from the llama.cpp server via the SillyTavern proxy.
+ * The llama.cpp /props endpoint reports the slot count in its "total_slots" field.
+ * @returns {Promise<?number>} - The total number of slots, or null if it cannot be determined.
  */
-function initializeSlots(totalSlots = 2) { // TODO: Instead of hardcoded value, fetch the number of slots from llama.cpp server
+async function fetchTotalSlots() {
+  // Only makes sense when connected to a llama.cpp backend
+  if (textgenerationwebui_settings.type !== textgen_types.LLAMACPP) {
+    return null;
+  }
+
+  const serverUrl = getTextGenServer(textgen_types.LLAMACPP);
+
+  if (!serverUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch("/api/backends/text-completions/props", {
+      method: "POST",
+      headers: getRequestHeaders(),
+      body: JSON.stringify({
+        api_server: serverUrl,
+        api_type: textgen_types.LLAMACPP,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`${extensionName}: Props request failed with status ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (typeof data?.total_slots !== "number" || data.total_slots < 1) {
+      console.warn(`${extensionName}: Server did not report a valid slot count`, data);
+      return null;
+    }
+
+    return data.total_slots;
+  } catch (error) {
+    console.warn(`${extensionName}: Failed to fetch slot count`, error);
+    return null;
+  }
+}
+
+/**
+ * Initializes the slots and slotsUsage arrays with the specified total number of slots.
+ * @param {number} [totalSlots] - The total number of slots. When omitted, the count is
+ * fetched from the llama.cpp server, falling back to the previous value if known.
+ */
+async function initializeSlots(totalSlots = null) {
+  // If the total is not given, fetch it from the llama.cpp server
+  if (totalSlots === null) {
+    const fetchedSlots = await fetchTotalSlots();
+
+    // On failure, keep the previously known slot count (if any), otherwise default to 1
+    if (fetchedSlots === null) {
+      totalSlots = (extensionSettings.slots?.length ?? 0) > 0 ? extensionSettings.slots.length : 1;
+      console.warn(`${extensionName}: Could not determine slot count, using ${totalSlots}`);
+    } else {
+      totalSlots = fetchedSlots;
+    }
+  }
+
   // If arrays is not initialized, initialize it as an empty array
   extensionSettings.slots      ||= [];
   extensionSettings.slotsUsage ||= [];
