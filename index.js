@@ -13,6 +13,9 @@ import {
   saveSettingsDebounced
 } from "../../../../script.js";
 
+import { Popup } from "../../../popup.js";
+import { t } from "../../../i18n.js";
+
 import {
   getTextGenServer,
   textgen_types,
@@ -320,6 +323,115 @@ function releaseSlots() {
   updateCharacterList();
 }
 
+/**
+ * Performs a slot cache action (save or restore) on the llama.cpp server via the SillyTavern proxy.
+ * @param {string} action - The action to perform. One of "save" or "restore".
+ * @param {number} slot - The index of the slot to act on.
+ * @param {string} filename - The name of the file to save to or restore from.
+ * @returns {Promise<boolean>} - Whether the action succeeded.
+ */
+async function slotAction(action, slot, filename) {
+  const serverUrl = getTextGenServer(textgen_types.LLAMACPP);
+
+  if (!serverUrl) {
+    toastr.error(t`No llama.cpp server URL configured`, extensionName);
+    return false;
+  }
+
+  try {
+    const response = await fetch("/api/backends/text-completions/llamacpp/slots", {
+      method: "POST",
+      headers: getRequestHeaders(),
+      body: JSON.stringify({
+        server_url: serverUrl,
+        action: action,
+        id_slot: String(slot),
+        filename: filename,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`${extensionName}: Slot ${action} request failed with status ${response.status}`);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.warn(`${extensionName}: Slot ${action} request failed`, error);
+    return false;
+  }
+}
+
+/**
+ * Saves the KV cache of the given slot to a file. Asks the user for the file name to use.
+ * @param {number} slot - The index of the slot to save.
+ */
+async function saveSlot(slot) {
+  const defaultName = `slot-${slot}.cache`;
+  const filename = await Popup.show.input(
+    t`Save slot cache`,
+    t`Enter the file name to save the KV cache of slot ${slot} to:`,
+    extensionSettings.lastCacheName ?? defaultName,
+  );
+
+  // Popup was cancelled, do nothing
+  if (filename === null) {
+    return;
+  }
+
+  // Empty input is treated as "success" by the popup helper, but llama.cpp needs a name
+  if (!filename) {
+    toastr.warning(t`No file name given, slot not saved`, extensionName);
+    return;
+  }
+
+  extensionSettings.lastCacheName = filename;
+  saveSettingsDebounced();
+
+  toastr.info(t`Saving slot ${slot} to ${filename}...`, extensionName);
+
+  if (await slotAction("save", slot, filename)) {
+    toastr.success(t`Slot ${slot} saved to ${filename}`, extensionName);
+  } else {
+    toastr.error(t`Failed to save slot ${slot} to ${filename}`, extensionName);
+  }
+}
+
+/**
+ * Restores the KV cache of the given slot from a file. Asks the user for the file name to use.
+ * @param {number} slot - The index of the slot to restore.
+ */
+async function restoreSlot(slot) {
+  const defaultName = `slot-${slot}.cache`;
+  const filename = await Popup.show.input(
+    t`Restore slot cache`,
+    t`Enter the file name to restore the KV cache of slot ${slot} from:`,
+    extensionSettings.lastCacheName ?? defaultName,
+  );
+
+  // Popup was cancelled, do nothing
+  if (filename === null) {
+    return;
+  }
+
+  // Empty input is treated as "success" by the popup helper, but llama.cpp needs a name
+  if (!filename) {
+    toastr.warning(t`No file name given, slot not restored`, extensionName);
+    return;
+  }
+
+  extensionSettings.lastCacheName = filename;
+  saveSettingsDebounced();
+
+  toastr.info(t`Restoring slot ${slot} from ${filename}...`, extensionName);
+
+  if (await slotAction("restore", slot, filename)) {
+    toastr.success(t`Slot ${slot} restored from ${filename}`, extensionName);
+  } else {
+    toastr.error(t`Failed to restore slot ${slot} from ${filename}`, extensionName);
+  }
+}
+
 /////
 
 jQuery(async () => {
@@ -333,6 +445,12 @@ jQuery(async () => {
 
     $("#slot_manager_settings")
       .on("click", ".slot_manager_release", (event) => releaseSlot(Number(event.currentTarget.dataset.slot)));
+
+    $("#slot_manager_settings")
+      .on("click", ".slot_manager_save", (event) => saveSlot(Number(event.currentTarget.dataset.slot)));
+
+    $("#slot_manager_settings")
+      .on("click", ".slot_manager_restore", (event) => restoreSlot(Number(event.currentTarget.dataset.slot)));
 
     $("#slot_manager_settings")
       .on("click", ".slot_manager_release_all", (event) => releaseSlots());

@@ -11,6 +11,14 @@
       <span class="ch_name flex1">{{ this.name }}</span>
 
       <div class="avatar-buttons">
+        <button class="menu_button slot_manager_save" data-slot="{{ this.slot }}" title="Save slot KV cache to file">
+          <i class="fa-fw fa-solid fa-floppy-disk"></i>
+        </button>
+
+        <button class="menu_button slot_manager_restore" data-slot="{{ this.slot }}" title="Restore slot KV cache from file">
+          <i class="fa-fw fa-solid fa-folder-open"></i>
+        </button>
+
         <button class="menu_button slot_manager_release" data-slot="{{ this.slot }}" title="Release slot">
           <i class="fa-fw fa-solid fa-recycle"></i>
         </button>
