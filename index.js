@@ -344,6 +344,7 @@ async function slotAction(action, slot, filename) {
       headers: getRequestHeaders(),
       body: JSON.stringify({
         server_url: serverUrl,
+        api_type: textgen_types.LLAMACPP,
         action: action,
         id_slot: String(slot),
         filename: filename,
