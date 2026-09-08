@@ -54,9 +54,9 @@ function updateSlotsAvailability() {
   let usedSlots = 0;
 
   // Iterate through each slot and count used slots
-  for (const name of Object.values(slots)) {
+  for (let index = 0; index < slots.length; index++) {
     // Check if slot is a string (i.e., used)
-    if (typeof name === "string") {
+    if (typeof slots[index] === "string") {
       usedSlots++;
     }
   }
@@ -79,8 +79,10 @@ function updateCharacterList() {
     characters: [],
   };
 
-  // Iterate through each slot in the extension settings
-  for (const [ slot, name ] of Object.entries(extensionSettings.slots)) {
+  // Iterate through each valid slot index in the extension settings
+  for (let slot = 0; slot < extensionSettings.slots.length; slot++) {
+    const name = extensionSettings.slots[slot];
+
     // Skip if slot is not used
     if (typeof name !== "string") {
       continue;
@@ -185,6 +187,20 @@ async function initializeSlots(totalSlots = null) {
   extensionSettings.slots      ||= [];
   extensionSettings.slotsUsage ||= [];
 
+  // Drop any non-index properties (e.g. phantom "-1" entries written by
+  // earlier versions when allocating into an empty array) so they cannot
+  // resurface in counts or the character list
+  for (const key of Object.keys(extensionSettings.slots)) {
+    if (!/^\d+$/.test(key) || Number(key) >= totalSlots) {
+      delete extensionSettings.slots[key];
+    }
+  }
+  for (const key of Object.keys(extensionSettings.slotsUsage)) {
+    if (!/^\d+$/.test(key) || Number(key) >= totalSlots) {
+      delete extensionSettings.slotsUsage[key];
+    }
+  }
+
   // Set the length of the arrays to the total number of slots
   extensionSettings.slots.length      = totalSlots;
   extensionSettings.slotsUsage.length = totalSlots;
@@ -208,7 +224,15 @@ async function initializeSlots(totalSlots = null) {
  * @param {string} cacheKey - The cache key to map to a slot.
  * @returns {number} - The slot associated with the cache key.
  */
-function acquireSlot(cacheKey) {  
+function acquireSlot(cacheKey) {
+  // No slots are known yet, either before the first successful initializeSlots()
+  // or when connected to a non-llama.cpp backend; refuse rather than write to
+  // an out-of-bounds index
+  if (!Array.isArray(extensionSettings.slots) || extensionSettings.slots.length === 0) {
+    console.warn(`${extensionName}: Refusing to acquire a slot, no slots initialized`);
+    return null;
+  }
+
   /**
    * Allocates a slot for the given cache key.
    * @param {number} index - The index of the slot to allocate.
@@ -239,21 +263,28 @@ function acquireSlot(cacheKey) {
 
   /**
    * Finds the index of the least recently used slot.
-   * @returns {number} - The index of the least recently used slot.
+   * @returns {number} - The index of the least recently used slot, or 0 if none found.
    */
   const findLeastRecentSlotIndex = () => {
     // Initialize variables to track the least recent date and its corresponding index
     let leastRecentDate = Infinity;
-    let leastRecentIndex = -1;
+    let leastRecentIndex = 0;
 
     // Iterate through each slot usage date
-    extensionSettings.slotsUsage.forEach((date, index) => {
+    for (let index = 0; index < extensionSettings.slots.length; index++) {
+      const date = extensionSettings.slotsUsage[index];
+
+      // Treat missing slots or timestamps (holes from delete, or never used) as the best candidates
+      if (extensionSettings.slots[index] === undefined || !(date instanceof Date)) {
+        return index;
+      }
+
       // Update the least recent date and index if the current date is less than the least recent date
-      if (date < leastRecentDate) {
-        leastRecentDate = date;
+      if (date.getTime() < leastRecentDate) {
+        leastRecentDate = date.getTime();
         leastRecentIndex = index;
       }
-    });
+    }
 
     // Return the index of the least recently used slot
     return leastRecentIndex;
@@ -284,9 +315,16 @@ function acquireSlot(cacheKey) {
  * @param {number} index - The index of the slot to be released.
  */
 function releaseSlot(index) {
-  // Delete the slot at the specified index
-  delete extensionSettings.slots[index];
-  delete extensionSettings.slotsUsage[index];
+  // Only valid for an initialized, in-range slot
+  if (!Array.isArray(extensionSettings.slots) || index < 0 || index >= extensionSettings.slots.length) {
+    console.warn(`${extensionName}: Refusing to release invalid slot index ${index}`);
+    return;
+  }
+
+  // Reset the slot to undefined (using delete would leave a hole that
+  // findIndex/forEach skip over, corrupting the allocation logic)
+  extensionSettings.slots[index] = undefined;
+  extensionSettings.slotsUsage[index] = undefined;
 
   // Log the slot release
   console.debug(`${extensionName}: Releasing slot ${index}`);
