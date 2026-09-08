@@ -371,7 +371,7 @@ async function saveSlot(slot) {
   const filename = await Popup.show.input(
     t`Save slot cache`,
     t`Enter the file name to save the KV cache of slot ${slot} to:`,
-    extensionSettings.lastCacheName ?? defaultName,
+    extensionSettings.lastCacheNames?.[slot] ?? defaultName,
   );
 
   // Popup was cancelled, do nothing
@@ -385,7 +385,8 @@ async function saveSlot(slot) {
     return;
   }
 
-  extensionSettings.lastCacheName = filename;
+  extensionSettings.lastCacheNames ??= {};
+  extensionSettings.lastCacheNames[slot] = filename;
   saveSettingsDebounced();
 
   toastr.info(t`Saving slot ${slot} to ${filename}...`, extensionName);
@@ -406,7 +407,7 @@ async function restoreSlot(slot) {
   const filename = await Popup.show.input(
     t`Restore slot cache`,
     t`Enter the file name to restore the KV cache of slot ${slot} from:`,
-    extensionSettings.lastCacheName ?? defaultName,
+    extensionSettings.lastCacheNames?.[slot] ?? defaultName,
   );
 
   // Popup was cancelled, do nothing
@@ -420,7 +421,8 @@ async function restoreSlot(slot) {
     return;
   }
 
-  extensionSettings.lastCacheName = filename;
+  extensionSettings.lastCacheNames ??= {};
+  extensionSettings.lastCacheNames[slot] = filename;
   saveSettingsDebounced();
 
   toastr.info(t`Restoring slot ${slot} from ${filename}...`, extensionName);
